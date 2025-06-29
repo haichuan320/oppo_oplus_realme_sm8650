@@ -109,9 +109,9 @@ jobs:
           cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
           cp ./SukiSU_patch/hooks/syscall_hooks.patch ./common/
-          cp ./kernel_patches/001-lz4.patch ./common/
-          cp ./kernel_patches/lz4armv8.S ./common/lib
-          cp ./kernel_patches/002-zstd.patch ./common/
+          cp ./kernel_patches/zram/001-lz4.patch ./common/
+          cp ./kernel_patches/zram/lz4armv8.S ./common/lib
+          cp ./kernel_patches/zram/002-zstd.patch ./common/
           cd ./common
           patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
           patch -p1 < syscall_hooks.patch
