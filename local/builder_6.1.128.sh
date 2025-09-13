@@ -6,28 +6,28 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # ===== 设置自定义参数 =====
-echo "===== 欧加真MT6897通用6.1.128 A15 (天玑特供)OKI内核本地编译脚本 By Coolapk@cctv18 ====="
+echo "===== 欧加真MT6897通用6.1.128 A15 (mtk特供) OKI内核本地编译脚本 By Coolapk@cctv18 ====="
 echo ">>> 读取用户配置..."
 SOC_BRANCH=${SOC_BRANCH:-mt6897}
 MANIFEST=${MANIFEST:-oppo+oplus+realme}
-read -p "请输入自定义内核后缀（默认：android14-11-o-gca13bffobf09）: " CUSTOM_SUFFIX
-CUSTOM_SUFFIX=${CUSTOM_SUFFIX:-android14-11-o-gca13bffobf09}
-read -p "是否启用 KPM？(y/n，默认：y): " USE_PATCH_LINUX
-USE_PATCH_LINUX=${USE_PATCH_LINUX:-y}
+read -p "请输入自定义内核后缀（默认：oki-xiaoxiaow）: " CUSTOM_SUFFIX
+CUSTOM_SUFFIX=${CUSTOM_SUFFIX:-oki-xiaoxiaow}
+read -p "是否启用 KPM？(y/n，默认：n): " USE_PATCH_LINUX
+USE_PATCH_LINUX=${USE_PATCH_LINUX:-n}
 read -p "KSU分支版本(y=SukiSU Ultra, n=KernelSU Next, 默认：y): " KSU_BRANCH
 KSU_BRANCH=${KSU_BRANCH:-y}
 read -p "是否应用 kprobes钩子？(y/n，默认：n): " APPLY_KPROBES
 APPLY_KPROBES=${APPLY_KPROBES:-n}
 read -p "是否应用 lz4 1.10.0 & zstd 1.5.7 补丁？(y/n，默认：y): " APPLY_LZ4
 APPLY_LZ4=${APPLY_LZ4:-y}
-read -p "是否应用 lz4kd 补丁？(y/n，默认：y): " APPLY_LZ4KD
-APPLY_LZ4KD=${APPLY_LZ4KD:-y}
-read -p "是否启用网络功能增强优化配置？(y/n，在ace5竞速版上可能导致bug,建议关闭;默认：n): " APPLY_BETTERNET
+read -p "是否应用 lz4kd 补丁？(y/n，默认：n): " APPLY_LZ4KD
+APPLY_LZ4KD=${APPLY_LZ4KD:-n}
+read -p "是否启用网络功能增强优化配置？(y/n，在MTK上可能导致bug,建议关闭;默认：n): " APPLY_BETTERNET
 APPLY_BETTERNET=${APPLY_BETTERNET:-n}
 read -p "是否添加 BBR 等一系列拥塞控制算法？(y添加/n禁用/d默认，默认：n): " APPLY_BBR
 APPLY_BBR=${APPLY_BBR:-n}
-read -p "是否启用三星SSG IO调度器？(y/n，默认：y): " APPLY_SSG
-APPLY_SSG=${APPLY_SSG:-y}
+read -p "是否启用三星SSG IO调度器？(y/n，默认：n): " APPLY_SSG
+APPLY_SSG=${APPLY_SSG:-n}
 read -p "是否启用Re-Kernel？(y/n，默认：n): " APPLY_REKERNEL
 APPLY_REKERNEL=${APPLY_REKERNEL:-n}
 read -p "是否安装风驰内核驱动（未完成）？(y/n，默认：n): " APPLY_SCX
@@ -98,9 +98,46 @@ if [[ "$KSU_BRANCH" == "y" ]]; then
   echo ">>> 拉取 SukiSU-Ultra 并设置版本..."
   curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-main
   cd KernelSU
-  KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) "+" 10606)
-  export KSU_VERSION=$KSU_VERSION
-  sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
+  KSU_VERSION_COUNT=$(git rev-list --count main)
+  export KSUVER=$(expr $KSU_VERSION_COUNT + 10700)
+
+  for i in {1..3}; do
+    KSU_API_VERSION=$(curl -fsSL "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/susfs-main/kernel/Makefile" | \
+      grep -m1 "KSU_VERSION_API :=" | cut -d'=' -f2 | tr -d '[:space:]')
+    [ -n "$KSU_API_VERSION" ] && break || sleep 2
+  done
+
+  if [ -z "$KSU_API_VERSION" ]; then
+    echo "Error:KSU_API_VERSION Not Found" >&2
+    exit 1
+  fi
+
+  KSU_COMMIT_HASH=$(git ls-remote https://github.com/SukiSU-Ultra/SukiSU-Ultra.git refs/heads/susfs-main | cut -f1 | cut -c1-8)
+  KSU_VERSION_FULL="v${KSU_API_VERSION}-${KSU_COMMIT_HASH}-xiaoxiaow"
+
+  # 删除旧定义
+  sed -i '/define get_ksu_version_full/,/endef/d' kernel/Makefile
+  sed -i '/KSU_VERSION_API :=/d' kernel/Makefile
+  sed -i '/KSU_VERSION_FULL :=/d' kernel/Makefile
+
+  # 插入新定义在 REPO_OWNER := 之后
+  TMP_FILE=$(mktemp)
+  while IFS= read -r line; do
+    echo "$line" >> "$TMP_FILE"
+    if echo "$line" | grep -q 'REPO_OWNER :='; then
+      cat >> "$TMP_FILE" <<EOF
+  define get_ksu_version_full
+  v\\\$\$1-${KSU_COMMIT_HASH}-xiaoxiaow
+  endef
+
+  KSU_VERSION_API := ${KSU_API_VERSION}
+  KSU_VERSION_FULL := ${KSU_VERSION_FULL}
+EOF
+    fi
+  done < kernel/Makefile
+  mv "$TMP_FILE" kernel/Makefile
+
+  echo "✅ SukiSU Ultra configured."
 else
   echo ">>> 拉取 KernelSU Next 并设置版本..."
   curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
@@ -330,7 +367,7 @@ fi
 # ===== 克隆并打包 AnyKernel3 =====
 cd "$WORKDIR/kernel_workspace"
 echo ">>> 克隆 AnyKernel3 项目..."
-git clone https://github.com/cctv18/AnyKernel3 --depth=1
+git clone https://github.com/Xiaomichael/AnyKernel3 --depth=1
 
 echo ">>> 清理 AnyKernel3 Git 信息..."
 rm -rf ./AnyKernel3/.git
